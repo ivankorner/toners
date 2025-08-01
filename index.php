@@ -61,15 +61,17 @@
                     <i class="fas fa-edit me-1"></i>Editar Toners
                 </button>
             </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="ingresos-tab" data-bs-toggle="tab" data-bs-target="#ingresos" type="button" role="tab">
-                    <i class="fas fa-arrow-up me-1"></i>Ingresos
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="egresos-tab" data-bs-toggle="tab" data-bs-target="#egresos" type="button" role="tab">
-                    <i class="fas fa-arrow-down me-1"></i>Egresos
-                </button>
+            <li class="nav-item dropdown" role="presentation">
+                <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-expanded="false">
+                    <i class="fas fa-arrows-alt-v me-1"></i>Movimientos
+                </a>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" data-bs-toggle="tab" data-bs-target="#ingresos" href="#"><i class="fas fa-arrow-up me-1"></i>Ingresos Toners</a></li>
+                    <li><a class="dropdown-item" data-bs-toggle="tab" data-bs-target="#egresos" href="#"><i class="fas fa-arrow-down me-1"></i>Egresos Toners</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" data-bs-toggle="tab" data-bs-target="#ingresos-drums" href="#"><i class="fas fa-arrow-up me-1"></i>Ingresos Drums</a></li>
+                    <li><a class="dropdown-item" data-bs-toggle="tab" data-bs-target="#egresos-drums" href="#"><i class="fas fa-arrow-down me-1"></i>Egresos Drums</a></li>
+                </ul>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="stock-tab" data-bs-toggle="tab" data-bs-target="#stock" type="button" role="tab">
@@ -89,10 +91,27 @@
                         <?php
                         if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'cargar_toner') {
                             try {
+                                $pdo->beginTransaction();
+                                
+                                // Insertar el toner
                                 $stmt = $pdo->prepare("INSERT INTO toners (modelo, detalle, modelo_impresora, implementada, cantidad_actual, cantidad_minima) VALUES (?, ?, ?, ?, ?, ?)");
                                 $stmt->execute([$_POST['modelo'], $_POST['detalle'], $_POST['modelo_impresora'], $_POST['implementada'], $_POST['cantidad'], $_POST['cantidad_minima']]);
-                                echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Toner agregado exitosamente</div>';
+                                $toner_id = $pdo->lastInsertId();
+                                
+                                // Insertar el drum asociado si se especificó
+                                if (!empty($_POST['drum_cantidad']) || !empty($_POST['drum_cantidad_minima']) || !empty($_POST['drum_modelo'])) {
+                                    $drum_cantidad = !empty($_POST['drum_cantidad']) ? $_POST['drum_cantidad'] : 0;
+                                    $drum_minima = !empty($_POST['drum_cantidad_minima']) ? $_POST['drum_cantidad_minima'] : 0;
+                                    $drum_modelo = !empty($_POST['drum_modelo']) ? $_POST['drum_modelo'] : '';
+                                    
+                                    $stmt = $pdo->prepare("INSERT INTO drums (toner_id, modelo, cantidad_actual, cantidad_minima) VALUES (?, ?, ?, ?)");
+                                    $stmt->execute([$toner_id, $drum_modelo, $drum_cantidad, $drum_minima]);
+                                }
+                                
+                                $pdo->commit();
+                                echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Toner' . (!empty($_POST['drum_cantidad']) || !empty($_POST['drum_cantidad_minima']) || !empty($_POST['drum_modelo']) ? ' y drum' : '') . ' agregado exitosamente</div>';
                             } catch(PDOException $e) {
+                                $pdo->rollback();
                                 echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
                             }
                         }
@@ -131,6 +150,57 @@
                                 }
                                 
                                 $pdo->commit();
+                            } catch(PDOException $e) {
+                                $pdo->rollback();
+                                echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
+                            }
+                        }
+                        
+                        // Procesar ingreso de drum
+                        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'registrar_ingreso_drum') {
+                            try {
+                                $pdo->beginTransaction();
+                                
+                                // Registrar el ingreso de drum
+                                $stmt = $pdo->prepare("INSERT INTO ingresos_drums (fecha_ingreso, drum_id, cantidad) VALUES (?, ?, ?)");
+                                $stmt->execute([$_POST['fecha_ingreso'], $_POST['drum_id'], $_POST['cantidad']]);
+                                
+                                // Actualizar el stock de drum
+                                $stmt = $pdo->prepare("UPDATE drums SET cantidad_actual = cantidad_actual + ? WHERE id = ?");
+                                $stmt->execute([$_POST['cantidad'], $_POST['drum_id']]);
+                                
+                                $pdo->commit();
+                                echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Ingreso de drum registrado exitosamente</div>';
+                            } catch(PDOException $e) {
+                                $pdo->rollback();
+                                echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
+                            }
+                        }
+                        
+                        // Procesar egreso de drum
+                        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'registrar_egreso_drum') {
+                            try {
+                                // Verificar stock disponible de drum
+                                $stmt = $pdo->prepare("SELECT cantidad_actual FROM drums WHERE id = ?");
+                                $stmt->execute([$_POST['drum_id']]);
+                                $stock_actual = $stmt->fetchColumn();
+                                
+                                if ($stock_actual >= $_POST['cantidad']) {
+                                    $pdo->beginTransaction();
+                                    
+                                    // Registrar el egreso de drum
+                                    $stmt = $pdo->prepare("INSERT INTO egresos_drums (fecha_egreso, drum_id, cantidad) VALUES (?, ?, ?)");
+                                    $stmt->execute([$_POST['fecha_egreso'], $_POST['drum_id'], $_POST['cantidad']]);
+                                    
+                                    // Actualizar el stock de drum
+                                    $stmt = $pdo->prepare("UPDATE drums SET cantidad_actual = cantidad_actual - ? WHERE id = ?");
+                                    $stmt->execute([$_POST['cantidad'], $_POST['drum_id']]);
+                                    
+                                    $pdo->commit();
+                                    echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Egreso de drum registrado exitosamente</div>';
+                                } else {
+                                    echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: Stock de drum insuficiente. Stock disponible: ' . $stock_actual . '</div>';
+                                }
                             } catch(PDOException $e) {
                                 $pdo->rollback();
                                 echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
@@ -184,6 +254,36 @@
                                     </div>
                                 </div>
                             </div>
+                            
+                            <!-- Sección DRUM -->
+                            <hr class="my-4">
+                            <h6 class="text-primary mb-3"><i class="fas fa-circle me-2"></i>Drum Asociado (Opcional)</h6>
+                            <div class="row">
+                                <div class="col-md-12">
+                                    <div class="mb-3">
+                                        <label for="drum_modelo" class="form-label">Drum</label>
+                                        <input type="text" class="form-control" id="drum_modelo" name="drum_modelo" placeholder="Ej: DR-3479, Drum para HP LaserJet Pro M404">
+                                        <div class="form-text">Especifica el modelo o descripción del drum asociado al toner</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="drum_cantidad" class="form-label">Cantidad Inicial de Drums</label>
+                                        <input type="number" class="form-control" id="drum_cantidad" name="drum_cantidad" min="0" placeholder="0">
+                                        <div class="form-text">Deja en blanco si no maneja drums</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="drum_cantidad_minima" class="form-label">Cantidad Mínima de Drums</label>
+                                        <input type="number" class="form-control" id="drum_cantidad_minima" name="drum_cantidad_minima" min="0" placeholder="0">
+                                        <div class="form-text">Alerta cuando el stock de drums sea menor a esta cantidad</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
                             <button type="submit" class="btn btn-primary">
                                 <i class="fas fa-save me-2"></i>Guardar Toner
                             </button>
@@ -544,6 +644,165 @@
                 </div>
             </div>
 
+            <!-- Tab Ingresos Drums -->
+            <div class="tab-pane fade" id="ingresos-drums" role="tabpanel">
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-arrow-up me-2"></i>Ingresos de Drums al Inventario</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST">
+                            <input type="hidden" name="action" value="registrar_ingreso_drum">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="fecha_ingreso_drum" class="form-label">Fecha de Ingreso</label>
+                                        <input type="date" class="form-control" id="fecha_ingreso_drum" name="fecha_ingreso" value="<?php echo date('Y-m-d'); ?>" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="drum_id" class="form-label">Drum (Toner)</label>
+                                        <select class="form-select" id="drum_id" name="drum_id" required>
+                                            <option value="">Seleccionar drum...</option>
+                                            <?php
+                                            $stmt = $pdo->query("SELECT d.id, t.modelo, d.modelo as drum_modelo FROM drums d JOIN toners t ON d.toner_id = t.id ORDER BY t.modelo");
+                                            while ($row = $stmt->fetch()) {
+                                                $drum_desc = !empty($row['drum_modelo']) ? " ({$row['drum_modelo']})" : "";
+                                                echo "<option value='{$row['id']}'>Drum para {$row['modelo']}{$drum_desc}</option>";
+                                            }
+                                            ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="cantidad_ingreso_drum" class="form-label">Cantidad</label>
+                                        <input type="number" class="form-control" id="cantidad_ingreso_drum" name="cantidad" min="1" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-plus me-2"></i>Registrar Ingreso de Drum
+                            </button>
+                        </form>
+                        
+                        <!-- Historial de ingresos recientes de drums -->
+                        <hr>
+                        <h6><i class="fas fa-history me-2"></i>Ingresos Recientes de Drums</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Toner (Drum)</th>
+                                        <th>Cantidad</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php
+                                    $stmt = $pdo->query("SELECT id.fecha_ingreso, t.modelo, d.modelo as drum_modelo, id.cantidad 
+                                                        FROM ingresos_drums id 
+                                                        JOIN drums d ON id.drum_id = d.id 
+                                                        JOIN toners t ON d.toner_id = t.id 
+                                                        ORDER BY id.fecha_registro DESC 
+                                                        LIMIT 5");
+                                    while ($row = $stmt->fetch()) {
+                                        $drum_desc = !empty($row['drum_modelo']) ? " ({$row['drum_modelo']})" : "";
+                                        echo "<tr>";
+                                        echo "<td>" . date('d/m/Y', strtotime($row['fecha_ingreso'])) . "</td>";
+                                        echo "<td>Drum para {$row['modelo']}{$drum_desc}</td>";
+                                        echo "<td><span class='badge bg-success'>+{$row['cantidad']}</span></td>";
+                                        echo "</tr>";
+                                    }
+                                    ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Egresos Drums -->
+            <div class="tab-pane fade" id="egresos-drums" role="tabpanel">
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-arrow-down me-2"></i>Egresos de Drums del Inventario</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST">
+                            <input type="hidden" name="action" value="registrar_egreso_drum">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="fecha_egreso_drum" class="form-label">Fecha de Egreso</label>
+                                        <input type="date" class="form-control" id="fecha_egreso_drum" name="fecha_egreso" value="<?php echo date('Y-m-d'); ?>" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="drum_id_egreso" class="form-label">Drum (Toner)</label>
+                                        <select class="form-select" id="drum_id_egreso" name="drum_id" required onchange="mostrarStockDrum(this.value)">
+                                            <option value="">Seleccionar drum...</option>
+                                            <?php
+                                            $stmt = $pdo->query("SELECT d.id, t.modelo, d.modelo as drum_modelo, d.cantidad_actual FROM drums d JOIN toners t ON d.toner_id = t.id ORDER BY t.modelo");
+                                            while ($row = $stmt->fetch()) {
+                                                $drum_desc = !empty($row['drum_modelo']) ? " ({$row['drum_modelo']})" : "";
+                                                echo "<option value='{$row['id']}' data-stock='{$row['cantidad_actual']}'>Drum para {$row['modelo']}{$drum_desc} (Stock: {$row['cantidad_actual']})</option>";
+                                            }
+                                            ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="cantidad_egreso_drum" class="form-label">Cantidad</label>
+                                        <input type="number" class="form-control" id="cantidad_egreso_drum" name="cantidad" min="1" required>
+                                        <div class="form-text" id="stock-info-drum"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-danger">
+                                <i class="fas fa-minus me-2"></i>Registrar Egreso de Drum
+                            </button>
+                        </form>
+                        
+                        <!-- Historial de egresos recientes de drums -->
+                        <hr>
+                        <h6><i class="fas fa-history me-2"></i>Egresos Recientes de Drums</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Toner (Drum)</th>
+                                        <th>Cantidad</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php
+                                    $stmt = $pdo->query("SELECT ed.fecha_egreso, t.modelo, d.modelo as drum_modelo, ed.cantidad 
+                                                        FROM egresos_drums ed 
+                                                        JOIN drums d ON ed.drum_id = d.id 
+                                                        JOIN toners t ON d.toner_id = t.id 
+                                                        ORDER BY ed.fecha_registro DESC 
+                                                        LIMIT 5");
+                                    while ($row = $stmt->fetch()) {
+                                        $drum_desc = !empty($row['drum_modelo']) ? " ({$row['drum_modelo']})" : "";
+                                        echo "<tr>";
+                                        echo "<td>" . date('d/m/Y', strtotime($row['fecha_egreso'])) . "</td>";
+                                        echo "<td>Drum para {$row['modelo']}{$drum_desc}</td>";
+                                        echo "<td><span class='badge bg-danger'>-{$row['cantidad']}</span></td>";
+                                        echo "</tr>";
+                                    }
+                                    ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Tab Stock -->
             <div class="tab-pane fade" id="stock" role="tabpanel">
                 <div class="card mt-3">
@@ -553,7 +812,10 @@
                     <div class="card-body">
                         <div class="row">
                             <?php
-                            $stmt = $pdo->query("SELECT * FROM toners ORDER BY modelo");
+                            $stmt = $pdo->query("SELECT t.*, d.id as drum_id, d.modelo as drum_modelo, d.cantidad_actual as drum_cantidad, d.cantidad_minima as drum_minima 
+                                               FROM toners t 
+                                               LEFT JOIN drums d ON t.id = d.toner_id 
+                                               ORDER BY t.modelo");
                             while ($row = $stmt->fetch()) {
                                 $clase_alerta = '';
                                 $icono_alerta = '';
@@ -577,10 +839,44 @@
                                     echo "<p class='card-text text-info mb-2'><i class='fas fa-map-marker-alt me-1'></i><small>{$row['implementada']}</small></p>";
                                 }
                                 echo "<p class='card-text text-muted'>{$row['detalle']}</p>";
-                                echo "<div class='d-flex justify-content-between align-items-center'>";
-                                echo "<span class='h4 mb-0'>{$row['cantidad_actual']}</span>";
-                                echo "<small class='text-muted'>Mín: {$row['cantidad_minima']}</small>";
+                                
+                                // Mostrar stock de toner
+                                echo "<div class='d-flex justify-content-between align-items-center mb-2'>";
+                                echo "<span><strong>Toner:</strong></span>";
+                                echo "<div>";
+                                echo "<span class='h5 mb-0'>{$row['cantidad_actual']}</span>";
+                                echo "<small class='text-muted ms-2'>Mín: {$row['cantidad_minima']}</small>";
                                 echo "</div>";
+                                echo "</div>";
+                                
+                                // Mostrar stock de drum si existe
+                                if (!empty($row['drum_id'])) {
+                                    $drum_clase = '';
+                                    $drum_icono = '';
+                                    if ($row['drum_cantidad'] <= 0) {
+                                        $drum_clase = 'text-danger';
+                                        $drum_icono = '<i class="fas fa-exclamation-triangle text-danger me-1"></i>';
+                                    } elseif ($row['drum_cantidad'] <= $row['drum_minima']) {
+                                        $drum_clase = 'text-warning';
+                                        $drum_icono = '<i class="fas fa-exclamation-circle text-warning me-1"></i>';
+                                    }
+                                    
+                                    $drum_titulo = !empty($row['drum_modelo']) ? $row['drum_modelo'] : 'Drum';
+                                    
+                                    echo "<div class='d-flex justify-content-between align-items-center {$drum_clase}'>";
+                                    echo "<span><strong>{$drum_icono}{$drum_titulo}:</strong></span>";
+                                    echo "<div>";
+                                    echo "<span class='h6 mb-0'>{$row['drum_cantidad']}</span>";
+                                    echo "<small class='text-muted ms-2'>Mín: {$row['drum_minima']}</small>";
+                                    echo "</div>";
+                                    echo "</div>";
+                                } else {
+                                    echo "<div class='d-flex justify-content-between align-items-center text-muted'>";
+                                    echo "<span><strong>Drum:</strong></span>";
+                                    echo "<span>No configurado</span>";
+                                    echo "</div>";
+                                }
+                                
                                 echo "</div>";
                                 echo "</div>";
                                 echo "</div>";
@@ -597,8 +893,14 @@
                                 SUM(cantidad_actual) as total_stock,
                                 COUNT(CASE WHEN cantidad_actual <= cantidad_minima THEN 1 END) as alertas_stock
                                 FROM toners")->fetch();
+                                
+                            $drum_stats = $pdo->query("SELECT 
+                                COUNT(*) as total_drums,
+                                SUM(cantidad_actual) as total_stock_drums,
+                                COUNT(CASE WHEN cantidad_actual <= cantidad_minima THEN 1 END) as alertas_drums
+                                FROM drums")->fetch();
                             ?>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <div class="card bg-primary text-white">
                                     <div class="card-body">
                                         <h5><?php echo $stats['total_modelos']; ?></h5>
@@ -606,19 +908,27 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <div class="card bg-success text-white">
                                     <div class="card-body">
                                         <h5><?php echo $stats['total_stock']; ?></h5>
-                                        <p class="mb-0">Total en Stock</p>
+                                        <p class="mb-0">Total Toners</p>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
+                                <div class="card bg-info text-white">
+                                    <div class="card-body">
+                                        <h5><?php echo $drum_stats['total_stock_drums']; ?></h5>
+                                        <p class="mb-0">Total Drums</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
                                 <div class="card bg-warning text-white">
                                     <div class="card-body">
-                                        <h5><?php echo $stats['alertas_stock']; ?></h5>
-                                        <p class="mb-0">Alertas de Stock</p>
+                                        <h5><?php echo ($stats['alertas_stock'] + $drum_stats['alertas_drums']); ?></h5>
+                                        <p class="mb-0">Alertas Totales</p>
                                     </div>
                                 </div>
                             </div>
@@ -638,6 +948,22 @@
             
             if (modeloId) {
                 const option = select.querySelector(`option[value="${modeloId}"]`);
+                const stock = option.getAttribute('data-stock');
+                stockInfo.textContent = `Stock disponible: ${stock}`;
+                cantidadInput.max = stock;
+            } else {
+                stockInfo.textContent = '';
+                cantidadInput.removeAttribute('max');
+            }
+        }
+        
+        function mostrarStockDrum(drumId) {
+            const select = document.getElementById('drum_id_egreso');
+            const stockInfo = document.getElementById('stock-info-drum');
+            const cantidadInput = document.getElementById('cantidad_egreso_drum');
+            
+            if (drumId) {
+                const option = select.querySelector(`option[value="${drumId}"]`);
                 const stock = option.getAttribute('data-stock');
                 stockInfo.textContent = `Stock disponible: ${stock}`;
                 cantidadInput.max = stock;
