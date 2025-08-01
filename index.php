@@ -58,7 +58,7 @@
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="edicion-tab" data-bs-toggle="tab" data-bs-target="#edicion" type="button" role="tab">
-                    <i class="fas fa-edit me-1"></i>Editar Toners
+                    <i class="fas fa-edit me-1"></i>Editar Toners y Drums
                 </button>
             </li>
             <li class="nav-item dropdown" role="presentation">
@@ -119,10 +119,44 @@
                         // Procesar edición de toner
                         if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'editar_toner') {
                             try {
+                                $pdo->beginTransaction();
+                                
+                                // Actualizar el toner
                                 $stmt = $pdo->prepare("UPDATE toners SET modelo = ?, detalle = ?, modelo_impresora = ?, implementada = ?, cantidad_actual = ?, cantidad_minima = ? WHERE id = ?");
                                 $stmt->execute([$_POST['modelo'], $_POST['detalle'], $_POST['modelo_impresora'], $_POST['implementada'], $_POST['cantidad'], $_POST['cantidad_minima'], $_POST['toner_id']]);
-                                echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Toner actualizado exitosamente</div>';
+                                
+                                // Procesar drum asociado
+                                $stmt = $pdo->prepare("SELECT id FROM drums WHERE toner_id = ?");
+                                $stmt->execute([$_POST['toner_id']]);
+                                $drum_existente = $stmt->fetch();
+                                
+                                if (!empty($_POST['drum_modelo']) || !empty($_POST['drum_cantidad']) || !empty($_POST['drum_cantidad_minima'])) {
+                                    // Hay datos de drum para procesar
+                                    $drum_modelo = !empty($_POST['drum_modelo']) ? $_POST['drum_modelo'] : '';
+                                    $drum_cantidad = !empty($_POST['drum_cantidad']) ? $_POST['drum_cantidad'] : 0;
+                                    $drum_minima = !empty($_POST['drum_cantidad_minima']) ? $_POST['drum_cantidad_minima'] : 0;
+                                    
+                                    if ($drum_existente) {
+                                        // Actualizar drum existente
+                                        $stmt = $pdo->prepare("UPDATE drums SET modelo = ?, cantidad_actual = ?, cantidad_minima = ? WHERE toner_id = ?");
+                                        $stmt->execute([$drum_modelo, $drum_cantidad, $drum_minima, $_POST['toner_id']]);
+                                    } else {
+                                        // Crear nuevo drum
+                                        $stmt = $pdo->prepare("INSERT INTO drums (toner_id, modelo, cantidad_actual, cantidad_minima) VALUES (?, ?, ?, ?)");
+                                        $stmt->execute([$_POST['toner_id'], $drum_modelo, $drum_cantidad, $drum_minima]);
+                                    }
+                                } else {
+                                    // No hay datos de drum, eliminar si existe
+                                    if ($drum_existente) {
+                                        $stmt = $pdo->prepare("DELETE FROM drums WHERE toner_id = ?");
+                                        $stmt->execute([$_POST['toner_id']]);
+                                    }
+                                }
+                                
+                                $pdo->commit();
+                                echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Toner y drum actualizado exitosamente</div>';
                             } catch(PDOException $e) {
+                                $pdo->rollback();
                                 echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
                             }
                         }
@@ -132,7 +166,7 @@
                             try {
                                 $pdo->beginTransaction();
                                 
-                                // Verificar si tiene movimientos
+                                // Verificar si tiene movimientos de toner
                                 $stmt = $pdo->prepare("SELECT COUNT(*) FROM ingresos WHERE modelo_id = ?");
                                 $stmt->execute([$_POST['toner_id']]);
                                 $ingresos = $stmt->fetchColumn();
@@ -141,12 +175,29 @@
                                 $stmt->execute([$_POST['toner_id']]);
                                 $egresos = $stmt->fetchColumn();
                                 
-                                if ($ingresos > 0 || $egresos > 0) {
-                                    echo '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>No se puede eliminar: El toner tiene movimientos registrados</div>';
+                                // Verificar si tiene drums con movimientos
+                                $stmt = $pdo->prepare("SELECT id FROM drums WHERE toner_id = ?");
+                                $stmt->execute([$_POST['toner_id']]);
+                                $drum_ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+                                
+                                $movimientos_drums = 0;
+                                if (!empty($drum_ids)) {
+                                    $placeholders = str_repeat('?,', count($drum_ids) - 1) . '?';
+                                    $stmt = $pdo->prepare("SELECT COUNT(*) FROM ingresos_drums WHERE drum_id IN ($placeholders)");
+                                    $stmt->execute($drum_ids);
+                                    $movimientos_drums += $stmt->fetchColumn();
+                                    
+                                    $stmt = $pdo->prepare("SELECT COUNT(*) FROM egresos_drums WHERE drum_id IN ($placeholders)");
+                                    $stmt->execute($drum_ids);
+                                    $movimientos_drums += $stmt->fetchColumn();
+                                }
+                                
+                                if ($ingresos > 0 || $egresos > 0 || $movimientos_drums > 0) {
+                                    echo '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>No se puede eliminar: El toner o sus drums tienen movimientos registrados</div>';
                                 } else {
                                     $stmt = $pdo->prepare("DELETE FROM toners WHERE id = ?");
                                     $stmt->execute([$_POST['toner_id']]);
-                                    echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Toner eliminado exitosamente</div>';
+                                    echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Toner y drums asociados eliminado exitosamente</div>';
                                 }
                                 
                                 $pdo->commit();
@@ -292,20 +343,28 @@
                 </div>
             </div>
 
-            <!-- Tab Editar Toners -->
+            <!-- Tab Editar Toners y Drums -->
             <div class="tab-pane fade" id="edicion" role="tabpanel">
                 <div class="card mt-3">
                     <div class="card-header">
-                        <h5 class="mb-0"><i class="fas fa-edit me-2"></i>Editar/Eliminar Toners</h5>
+                        <h5 class="mb-0"><i class="fas fa-edit me-2"></i>Editar/Eliminar Toners y Drums</h5>
                     </div>
                     <div class="card-body">
                         <?php
                         // Obtener toner para editar si se especifica
                         $toner_editar = null;
+                        $drum_editar = null;
                         if (isset($_GET['editar']) && !empty($_GET['editar'])) {
                             $stmt = $pdo->prepare("SELECT * FROM toners WHERE id = ?");
                             $stmt->execute([$_GET['editar']]);
                             $toner_editar = $stmt->fetch();
+                            
+                            // Obtener drum asociado si existe
+                            if ($toner_editar) {
+                                $stmt = $pdo->prepare("SELECT * FROM drums WHERE toner_id = ?");
+                                $stmt->execute([$toner_editar['id']]);
+                                $drum_editar = $stmt->fetch();
+                            }
                         }
                         ?>
                         
@@ -363,9 +422,39 @@
                                     </div>
                                 </div>
                             </div>
+                            
+                            <!-- Sección DRUM -->
+                            <hr class="my-4">
+                            <h6 class="text-primary mb-3"><i class="fas fa-circle me-2"></i>Drum Asociado (Opcional)</h6>
+                            <div class="row">
+                                <div class="col-md-12">
+                                    <div class="mb-3">
+                                        <label for="drum_modelo_edit" class="form-label">Drum</label>
+                                        <input type="text" class="form-control" id="drum_modelo_edit" name="drum_modelo" value="<?php echo $drum_editar ? htmlspecialchars($drum_editar['modelo']) : ''; ?>" placeholder="Ej: DR-3479, Drum para HP LaserJet Pro M404">
+                                        <div class="form-text">Especifica el modelo o descripción del drum asociado al toner</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="drum_cantidad_edit" class="form-label">Cantidad Actual de Drums</label>
+                                        <input type="number" class="form-control" id="drum_cantidad_edit" name="drum_cantidad" value="<?php echo $drum_editar ? $drum_editar['cantidad_actual'] : ''; ?>" min="0" placeholder="0">
+                                        <div class="form-text">Deja en blanco si no maneja drums</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="drum_cantidad_minima_edit" class="form-label">Cantidad Mínima de Drums</label>
+                                        <input type="number" class="form-control" id="drum_cantidad_minima_edit" name="drum_cantidad_minima" value="<?php echo $drum_editar ? $drum_editar['cantidad_minima'] : ''; ?>" min="0" placeholder="0">
+                                        <div class="form-text">Alerta cuando el stock de drums sea menor a esta cantidad</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
                             <div class="d-flex gap-2">
                                 <button type="submit" class="btn btn-success">
-                                    <i class="fas fa-save me-2"></i>Actualizar Toner
+                                    <i class="fas fa-save me-2"></i>Actualizar Toner y Drum
                                 </button>
                                 <a href="?#edicion" class="btn btn-secondary">
                                     <i class="fas fa-times me-2"></i>Cancelar
@@ -374,7 +463,7 @@
                         </form>
                         <?php else: ?>
                         <!-- Lista de toners para editar -->
-                        <p class="mb-3">Selecciona un toner para editar sus datos:</p>
+                        <p class="mb-3">Selecciona un toner para editar sus datos y los del drum asociado:</p>
                         
                         <div class="table-responsive">
                             <table class="table table-hover">
@@ -383,14 +472,17 @@
                                         <th>Modelo Toner</th>
                                         <th>Modelo Impresora</th>
                                         <th>Implementada</th>
-                                        <th>Stock Actual</th>
-                                        <th>Stock Mínimo</th>
+                                        <th>Stock Toner</th>
+                                        <th>Stock Drum</th>
                                         <th>Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php
-                                    $stmt = $pdo->query("SELECT * FROM toners ORDER BY modelo");
+                                    $stmt = $pdo->query("SELECT t.*, d.modelo as drum_modelo, d.cantidad_actual as drum_cantidad, d.cantidad_minima as drum_minima 
+                                                        FROM toners t 
+                                                        LEFT JOIN drums d ON t.id = d.toner_id 
+                                                        ORDER BY t.modelo");
                                     while ($row = $stmt->fetch()) {
                                         $clase_fila = '';
                                         if ($row['cantidad_actual'] <= 0) {
@@ -415,8 +507,23 @@
                                         } else {
                                             echo "<span class='badge bg-success'>{$row['cantidad_actual']}</span>";
                                         }
+                                        echo "<br><small class='text-muted'>Mín: {$row['cantidad_minima']}</small>";
                                         echo "</td>";
-                                        echo "<td>{$row['cantidad_minima']}</td>";
+                                        echo "<td>";
+                                        if (!empty($row['drum_cantidad']) || !empty($row['drum_cantidad'])) {
+                                            $drum_nombre = !empty($row['drum_modelo']) ? $row['drum_modelo'] : 'Drum';
+                                            if ($row['drum_cantidad'] <= 0) {
+                                                echo "<span class='badge bg-danger'>{$row['drum_cantidad']}</span>";
+                                            } elseif ($row['drum_cantidad'] <= $row['drum_minima']) {
+                                                echo "<span class='badge bg-warning'>{$row['drum_cantidad']}</span>";
+                                            } else {
+                                                echo "<span class='badge bg-success'>{$row['drum_cantidad']}</span>";
+                                            }
+                                            echo "<br><small class='text-muted'>{$drum_nombre} (Mín: {$row['drum_minima']})</small>";
+                                        } else {
+                                            echo "<span class='text-muted'>Sin drum</span>";
+                                        }
+                                        echo "</td>";
                                         echo "<td>";
                                         echo "<div class='btn-group btn-group-sm' role='group'>";
                                         echo "<a href='?editar={$row['id']}#edicion' class='btn btn-outline-primary'>";
@@ -842,7 +949,7 @@
                                 
                                 // Mostrar stock de toner
                                 echo "<div class='d-flex justify-content-between align-items-center mb-2'>";
-                                echo "<span><strong>Toner:</strong></span>";
+                                echo "<span><strong>Toner: {$row['modelo']}</strong></span>";
                                 echo "<div>";
                                 echo "<span class='h5 mb-0'>{$row['cantidad_actual']}</span>";
                                 echo "<small class='text-muted ms-2'>Mín: {$row['cantidad_minima']}</small>";
@@ -864,7 +971,7 @@
                                     $drum_titulo = !empty($row['drum_modelo']) ? $row['drum_modelo'] : 'Drum';
                                     
                                     echo "<div class='d-flex justify-content-between align-items-center {$drum_clase}'>";
-                                    echo "<span><strong>{$drum_icono}{$drum_titulo}:</strong></span>";
+                                    echo "<span><strong>{$drum_icono}Drum: {$drum_titulo}</strong></span>";
                                     echo "<div>";
                                     echo "<span class='h6 mb-0'>{$row['drum_cantidad']}</span>";
                                     echo "<small class='text-muted ms-2'>Mín: {$row['drum_minima']}</small>";
