@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Inventario de Toners</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .navbar-brand {
+            font-weight: bold;
+        }
+        .card-header {
+            background-color: #007bff;
+            color: white;
+        }
+        .stock-low {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+        .stock-critical {
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+        }
+        .table-hover tbody tr:hover {
+            background-color: rgba(0, 123, 255, 0.1);
+        }
+        .btn-group-sm .btn {
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <?php require_once 'config/database.php'; ?>
+    
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-print me-2"></i>
+                Sistema de Inventario de Toners
+            </a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text">
+                    <i class="fas fa-calendar-alt me-1"></i>
+                    <?php echo date('d/m/Y'); ?>
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Tabs de navegación -->
+        <ul class="nav nav-tabs" id="myTab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="carga-tab" data-bs-toggle="tab" data-bs-target="#carga" type="button" role="tab">
+                    <i class="fas fa-plus-circle me-1"></i>Carga de Datos
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="edicion-tab" data-bs-toggle="tab" data-bs-target="#edicion" type="button" role="tab">
+                    <i class="fas fa-edit me-1"></i>Editar Toners
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="ingresos-tab" data-bs-toggle="tab" data-bs-target="#ingresos" type="button" role="tab">
+                    <i class="fas fa-arrow-up me-1"></i>Ingresos
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="egresos-tab" data-bs-toggle="tab" data-bs-target="#egresos" type="button" role="tab">
+                    <i class="fas fa-arrow-down me-1"></i>Egresos
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="stock-tab" data-bs-toggle="tab" data-bs-target="#stock" type="button" role="tab">
+                    <i class="fas fa-boxes me-1"></i>Stock
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="myTabContent">
+            <!-- Tab Carga de Datos -->
+            <div class="tab-pane fade show active" id="carga" role="tabpanel">
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-database me-2"></i>Carga de Datos - Nuevos Toners</h5>
+                    </div>
+                    <div class="card-body">
+                        <?php
+                        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'cargar_toner') {
+                            try {
+                                $stmt = $pdo->prepare("INSERT INTO toners (modelo, detalle, modelo_impresora, implementada, cantidad_actual, cantidad_minima) VALUES (?, ?, ?, ?, ?, ?)");
+                                $stmt->execute([$_POST['modelo'], $_POST['detalle'], $_POST['modelo_impresora'], $_POST['implementada'], $_POST['cantidad'], $_POST['cantidad_minima']]);
+                                echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Toner agregado exitosamente</div>';
+                            } catch(PDOException $e) {
+                                echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
+                            }
+                        }
+                        
+                        // Procesar edición de toner
+                        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'editar_toner') {
+                            try {
+                                $stmt = $pdo->prepare("UPDATE toners SET modelo = ?, detalle = ?, modelo_impresora = ?, implementada = ?, cantidad_actual = ?, cantidad_minima = ? WHERE id = ?");
+                                $stmt->execute([$_POST['modelo'], $_POST['detalle'], $_POST['modelo_impresora'], $_POST['implementada'], $_POST['cantidad'], $_POST['cantidad_minima'], $_POST['toner_id']]);
+                                echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Toner actualizado exitosamente</div>';
+                            } catch(PDOException $e) {
+                                echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
+                            }
+                        }
+                        
+                        // Procesar eliminación de toner
+                        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'eliminar_toner') {
+                            try {
+                                $pdo->beginTransaction();
+                                
+                                // Verificar si tiene movimientos
+                                $stmt = $pdo->prepare("SELECT COUNT(*) FROM ingresos WHERE modelo_id = ?");
+                                $stmt->execute([$_POST['toner_id']]);
+                                $ingresos = $stmt->fetchColumn();
+                                
+                                $stmt = $pdo->prepare("SELECT COUNT(*) FROM egresos WHERE modelo_id = ?");
+                                $stmt->execute([$_POST['toner_id']]);
+                                $egresos = $stmt->fetchColumn();
+                                
+                                if ($ingresos > 0 || $egresos > 0) {
+                                    echo '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>No se puede eliminar: El toner tiene movimientos registrados</div>';
+                                } else {
+                                    $stmt = $pdo->prepare("DELETE FROM toners WHERE id = ?");
+                                    $stmt->execute([$_POST['toner_id']]);
+                                    echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Toner eliminado exitosamente</div>';
+                                }
+                                
+                                $pdo->commit();
+                            } catch(PDOException $e) {
+                                $pdo->rollback();
+                                echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
+                            }
+                        }
+                        ?>
+                        
+                        <form method="POST">
+                            <input type="hidden" name="action" value="cargar_toner">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="modelo" class="form-label">Modelo del Toner</label>
+                                        <input type="text" class="form-control" id="modelo" name="modelo" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="modelo_impresora" class="form-label">Modelo de Impresora</label>
+                                        <input type="text" class="form-control" id="modelo_impresora" name="modelo_impresora" placeholder="Ej: HP LaserJet Pro M404dn">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <div class="mb-3">
+                                        <label for="implementada" class="form-label">Implementada (Oficinas/Ubicaciones)</label>
+                                        <input type="text" class="form-control" id="implementada" name="implementada" placeholder="Ej: Oficina Central, Recepción, Sala de Reuniones">
+                                        <div class="form-text">Especifica en qué oficinas o ubicaciones está instalada esta impresora</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="cantidad" class="form-label">Cantidad Inicial</label>
+                                        <input type="number" class="form-control" id="cantidad" name="cantidad" min="0" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <div class="mb-3">
+                                        <label for="detalle" class="form-label">Detalle del Toner</label>
+                                        <textarea class="form-control" id="detalle" name="detalle" rows="3" placeholder="Descripción adicional del toner (color, tipo, características especiales)"></textarea>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="cantidad_minima" class="form-label">Cantidad Mínima</label>
+                                        <input type="number" class="form-control" id="cantidad_minima" name="cantidad_minima" min="0" required>
+                                        <div class="form-text">Alerta cuando el stock sea menor a esta cantidad</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save me-2"></i>Guardar Toner
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Editar Toners -->
+            <div class="tab-pane fade" id="edicion" role="tabpanel">
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-edit me-2"></i>Editar/Eliminar Toners</h5>
+                    </div>
+                    <div class="card-body">
+                        <?php
+                        // Obtener toner para editar si se especifica
+                        $toner_editar = null;
+                        if (isset($_GET['editar']) && !empty($_GET['editar'])) {
+                            $stmt = $pdo->prepare("SELECT * FROM toners WHERE id = ?");
+                            $stmt->execute([$_GET['editar']]);
+                            $toner_editar = $stmt->fetch();
+                        }
+                        ?>
+                        
+                        <?php if ($toner_editar): ?>
+                        <!-- Formulario de edición -->
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>Editando toner: <strong><?php echo htmlspecialchars($toner_editar['modelo']); ?></strong>
+                            <a href="?#edicion" class="btn btn-sm btn-outline-info ms-2">Cancelar</a>
+                        </div>
+                        
+                        <form method="POST">
+                            <input type="hidden" name="action" value="editar_toner">
+                            <input type="hidden" name="toner_id" value="<?php echo $toner_editar['id']; ?>">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="modelo_edit" class="form-label">Modelo del Toner</label>
+                                        <input type="text" class="form-control" id="modelo_edit" name="modelo" value="<?php echo htmlspecialchars($toner_editar['modelo']); ?>" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="modelo_impresora_edit" class="form-label">Modelo de Impresora</label>
+                                        <input type="text" class="form-control" id="modelo_impresora_edit" name="modelo_impresora" value="<?php echo htmlspecialchars($toner_editar['modelo_impresora']); ?>" placeholder="Ej: HP LaserJet Pro M404dn">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <div class="mb-3">
+                                        <label for="implementada_edit" class="form-label">Implementada (Oficinas/Ubicaciones)</label>
+                                        <input type="text" class="form-control" id="implementada_edit" name="implementada" value="<?php echo htmlspecialchars($toner_editar['implementada']); ?>" placeholder="Ej: Oficina Central, Recepción, Sala de Reuniones">
+                                        <div class="form-text">Especifica en qué oficinas o ubicaciones está instalada esta impresora</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="cantidad_edit" class="form-label">Cantidad Actual</label>
+                                        <input type="number" class="form-control" id="cantidad_edit" name="cantidad" value="<?php echo $toner_editar['cantidad_actual']; ?>" min="0" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <div class="mb-3">
+                                        <label for="detalle_edit" class="form-label">Detalle del Toner</label>
+                                        <textarea class="form-control" id="detalle_edit" name="detalle" rows="3" placeholder="Descripción adicional del toner (color, tipo, características especiales)"><?php echo htmlspecialchars($toner_editar['detalle']); ?></textarea>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="cantidad_minima_edit" class="form-label">Cantidad Mínima</label>
+                                        <input type="number" class="form-control" id="cantidad_minima_edit" name="cantidad_minima" value="<?php echo $toner_editar['cantidad_minima']; ?>" min="0" required>
+                                        <div class="form-text">Alerta cuando el stock sea menor a esta cantidad</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-success">
+                                    <i class="fas fa-save me-2"></i>Actualizar Toner
+                                </button>
+                                <a href="?#edicion" class="btn btn-secondary">
+                                    <i class="fas fa-times me-2"></i>Cancelar
+                                </a>
+                            </div>
+                        </form>
+                        <?php else: ?>
+                        <!-- Lista de toners para editar -->
+                        <p class="mb-3">Selecciona un toner para editar sus datos:</p>
+                        
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Modelo Toner</th>
+                                        <th>Modelo Impresora</th>
+                                        <th>Implementada</th>
+                                        <th>Stock Actual</th>
+                                        <th>Stock Mínimo</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php
+                                    $stmt = $pdo->query("SELECT * FROM toners ORDER BY modelo");
+                                    while ($row = $stmt->fetch()) {
+                                        $clase_fila = '';
+                                        if ($row['cantidad_actual'] <= 0) {
+                                            $clase_fila = 'table-danger';
+                                        } elseif ($row['cantidad_actual'] <= $row['cantidad_minima']) {
+                                            $clase_fila = 'table-warning';
+                                        }
+                                        
+                                        echo "<tr class='{$clase_fila}'>";
+                                        echo "<td><strong>{$row['modelo']}</strong>";
+                                        if (!empty($row['detalle'])) {
+                                            echo "<br><small class='text-muted'>{$row['detalle']}</small>";
+                                        }
+                                        echo "</td>";
+                                        echo "<td>" . (!empty($row['modelo_impresora']) ? $row['modelo_impresora'] : '<span class="text-muted">-</span>') . "</td>";
+                                        echo "<td>" . (!empty($row['implementada']) ? $row['implementada'] : '<span class="text-muted">-</span>') . "</td>";
+                                        echo "<td>";
+                                        if ($row['cantidad_actual'] <= 0) {
+                                            echo "<span class='badge bg-danger'>{$row['cantidad_actual']}</span>";
+                                        } elseif ($row['cantidad_actual'] <= $row['cantidad_minima']) {
+                                            echo "<span class='badge bg-warning'>{$row['cantidad_actual']}</span>";
+                                        } else {
+                                            echo "<span class='badge bg-success'>{$row['cantidad_actual']}</span>";
+                                        }
+                                        echo "</td>";
+                                        echo "<td>{$row['cantidad_minima']}</td>";
+                                        echo "<td>";
+                                        echo "<div class='btn-group btn-group-sm' role='group'>";
+                                        echo "<a href='?editar={$row['id']}#edicion' class='btn btn-outline-primary'>";
+                                        echo "<i class='fas fa-edit me-1'></i>Editar";
+                                        echo "</a>";
+                                        echo "<button type='button' class='btn btn-outline-danger' onclick='confirmarEliminacion({$row['id']}, \"{$row['modelo']}\")'>";
+                                        echo "<i class='fas fa-trash me-1'></i>Eliminar";
+                                        echo "</button>";
+                                        echo "</div>";
+                                        echo "</td>";
+                                        echo "</tr>";
+                                    }
+                                    ?>
+                                </tbody>
+                            </table>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Ingresos -->
+            <div class="tab-pane fade" id="ingresos" role="tabpanel">
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-arrow-up me-2"></i>Ingresos al Inventario</h5>
+                    </div>
+                    <div class="card-body">
+                        <?php
+                        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'registrar_ingreso') {
+                            try {
+                                $pdo->beginTransaction();
+                                
+                                // Registrar el ingreso
+                                $stmt = $pdo->prepare("INSERT INTO ingresos (fecha_ingreso, modelo_id, cantidad) VALUES (?, ?, ?)");
+                                $stmt->execute([$_POST['fecha_ingreso'], $_POST['modelo_id'], $_POST['cantidad']]);
+                                
+                                // Actualizar el stock
+                                $stmt = $pdo->prepare("UPDATE toners SET cantidad_actual = cantidad_actual + ? WHERE id = ?");
+                                $stmt->execute([$_POST['cantidad'], $_POST['modelo_id']]);
+                                
+                                $pdo->commit();
+                                echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Ingreso registrado exitosamente</div>';
+                            } catch(PDOException $e) {
+                                $pdo->rollback();
+                                echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
+                            }
+                        }
+                        ?>
+                        
+                        <form method="POST">
+                            <input type="hidden" name="action" value="registrar_ingreso">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="fecha_ingreso" class="form-label">Fecha de Ingreso</label>
+                                        <input type="date" class="form-control" id="fecha_ingreso" name="fecha_ingreso" value="<?php echo date('Y-m-d'); ?>" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="modelo_id" class="form-label">Modelo de Toner</label>
+                                        <select class="form-select" id="modelo_id" name="modelo_id" required>
+                                            <option value="">Seleccionar modelo...</option>
+                                            <?php
+                                            $stmt = $pdo->query("SELECT id, modelo FROM toners ORDER BY modelo");
+                                            while ($row = $stmt->fetch()) {
+                                                echo "<option value='{$row['id']}'>{$row['modelo']}</option>";
+                                            }
+                                            ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="cantidad_ingreso" class="form-label">Cantidad</label>
+                                        <input type="number" class="form-control" id="cantidad_ingreso" name="cantidad" min="1" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-plus me-2"></i>Registrar Ingreso
+                            </button>
+                        </form>
+                        
+                        <!-- Historial de ingresos recientes -->
+                        <hr>
+                        <h6><i class="fas fa-history me-2"></i>Ingresos Recientes</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Modelo</th>
+                                        <th>Cantidad</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php
+                                    $stmt = $pdo->query("SELECT i.fecha_ingreso, t.modelo, i.cantidad 
+                                                        FROM ingresos i 
+                                                        JOIN toners t ON i.modelo_id = t.id 
+                                                        ORDER BY i.fecha_registro DESC 
+                                                        LIMIT 5");
+                                    while ($row = $stmt->fetch()) {
+                                        echo "<tr>";
+                                        echo "<td>" . date('d/m/Y', strtotime($row['fecha_ingreso'])) . "</td>";
+                                        echo "<td>{$row['modelo']}</td>";
+                                        echo "<td><span class='badge bg-success'>+{$row['cantidad']}</span></td>";
+                                        echo "</tr>";
+                                    }
+                                    ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Egresos -->
+            <div class="tab-pane fade" id="egresos" role="tabpanel">
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-arrow-down me-2"></i>Egresos del Inventario</h5>
+                    </div>
+                    <div class="card-body">
+                        <?php
+                        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'registrar_egreso') {
+                            try {
+                                // Verificar stock disponible
+                                $stmt = $pdo->prepare("SELECT cantidad_actual FROM toners WHERE id = ?");
+                                $stmt->execute([$_POST['modelo_id']]);
+                                $stock_actual = $stmt->fetchColumn();
+                                
+                                if ($stock_actual >= $_POST['cantidad']) {
+                                    $pdo->beginTransaction();
+                                    
+                                    // Registrar el egreso
+                                    $stmt = $pdo->prepare("INSERT INTO egresos (fecha_egreso, modelo_id, cantidad) VALUES (?, ?, ?)");
+                                    $stmt->execute([$_POST['fecha_egreso'], $_POST['modelo_id'], $_POST['cantidad']]);
+                                    
+                                    // Actualizar el stock
+                                    $stmt = $pdo->prepare("UPDATE toners SET cantidad_actual = cantidad_actual - ? WHERE id = ?");
+                                    $stmt->execute([$_POST['cantidad'], $_POST['modelo_id']]);
+                                    
+                                    $pdo->commit();
+                                    echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Egreso registrado exitosamente</div>';
+                                } else {
+                                    echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: Stock insuficiente. Stock disponible: ' . $stock_actual . '</div>';
+                                }
+                            } catch(PDOException $e) {
+                                $pdo->rollback();
+                                echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
+                            }
+                        }
+                        ?>
+                        
+                        <form method="POST">
+                            <input type="hidden" name="action" value="registrar_egreso">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="fecha_egreso" class="form-label">Fecha de Egreso</label>
+                                        <input type="date" class="form-control" id="fecha_egreso" name="fecha_egreso" value="<?php echo date('Y-m-d'); ?>" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="modelo_id_egreso" class="form-label">Modelo de Toner</label>
+                                        <select class="form-select" id="modelo_id_egreso" name="modelo_id" required onchange="mostrarStock(this.value)">
+                                            <option value="">Seleccionar modelo...</option>
+                                            <?php
+                                            $stmt = $pdo->query("SELECT id, modelo, cantidad_actual FROM toners ORDER BY modelo");
+                                            while ($row = $stmt->fetch()) {
+                                                echo "<option value='{$row['id']}' data-stock='{$row['cantidad_actual']}'>{$row['modelo']} (Stock: {$row['cantidad_actual']})</option>";
+                                            }
+                                            ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="cantidad_egreso" class="form-label">Cantidad</label>
+                                        <input type="number" class="form-control" id="cantidad_egreso" name="cantidad" min="1" required>
+                                        <div class="form-text" id="stock-info"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-danger">
+                                <i class="fas fa-minus me-2"></i>Registrar Egreso
+                            </button>
+                        </form>
+                        
+                        <!-- Historial de egresos recientes -->
+                        <hr>
+                        <h6><i class="fas fa-history me-2"></i>Egresos Recientes</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Modelo</th>
+                                        <th>Cantidad</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php
+                                    $stmt = $pdo->query("SELECT e.fecha_egreso, t.modelo, e.cantidad 
+                                                        FROM egresos e 
+                                                        JOIN toners t ON e.modelo_id = t.id 
+                                                        ORDER BY e.fecha_registro DESC 
+                                                        LIMIT 5");
+                                    while ($row = $stmt->fetch()) {
+                                        echo "<tr>";
+                                        echo "<td>" . date('d/m/Y', strtotime($row['fecha_egreso'])) . "</td>";
+                                        echo "<td>{$row['modelo']}</td>";
+                                        echo "<td><span class='badge bg-danger'>-{$row['cantidad']}</span></td>";
+                                        echo "</tr>";
+                                    }
+                                    ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Stock -->
+            <div class="tab-pane fade" id="stock" role="tabpanel">
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-boxes me-2"></i>Stock Actual de Toners</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <?php
+                            $stmt = $pdo->query("SELECT * FROM toners ORDER BY modelo");
+                            while ($row = $stmt->fetch()) {
+                                $clase_alerta = '';
+                                $icono_alerta = '';
+                                
+                                if ($row['cantidad_actual'] <= 0) {
+                                    $clase_alerta = 'stock-critical';
+                                    $icono_alerta = '<i class="fas fa-exclamation-triangle text-danger me-2"></i>';
+                                } elseif ($row['cantidad_actual'] <= $row['cantidad_minima']) {
+                                    $clase_alerta = 'stock-low';
+                                    $icono_alerta = '<i class="fas fa-exclamation-circle text-warning me-2"></i>';
+                                }
+                                
+                                echo "<div class='col-md-6 col-lg-4 mb-3'>";
+                                echo "<div class='card {$clase_alerta}'>";
+                                echo "<div class='card-body'>";
+                                echo "<h6 class='card-title'>{$icono_alerta}{$row['modelo']}</h6>";
+                                if (!empty($row['modelo_impresora'])) {
+                                    echo "<p class='card-text text-primary mb-1'><i class='fas fa-print me-1'></i><strong>{$row['modelo_impresora']}</strong></p>";
+                                }
+                                if (!empty($row['implementada'])) {
+                                    echo "<p class='card-text text-info mb-2'><i class='fas fa-map-marker-alt me-1'></i><small>{$row['implementada']}</small></p>";
+                                }
+                                echo "<p class='card-text text-muted'>{$row['detalle']}</p>";
+                                echo "<div class='d-flex justify-content-between align-items-center'>";
+                                echo "<span class='h4 mb-0'>{$row['cantidad_actual']}</span>";
+                                echo "<small class='text-muted'>Mín: {$row['cantidad_minima']}</small>";
+                                echo "</div>";
+                                echo "</div>";
+                                echo "</div>";
+                                echo "</div>";
+                            }
+                            ?>
+                        </div>
+                        
+                        <!-- Resumen del stock -->
+                        <hr>
+                        <div class="row text-center">
+                            <?php
+                            $stats = $pdo->query("SELECT 
+                                COUNT(*) as total_modelos,
+                                SUM(cantidad_actual) as total_stock,
+                                COUNT(CASE WHEN cantidad_actual <= cantidad_minima THEN 1 END) as alertas_stock
+                                FROM toners")->fetch();
+                            ?>
+                            <div class="col-md-4">
+                                <div class="card bg-primary text-white">
+                                    <div class="card-body">
+                                        <h5><?php echo $stats['total_modelos']; ?></h5>
+                                        <p class="mb-0">Total Modelos</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-success text-white">
+                                    <div class="card-body">
+                                        <h5><?php echo $stats['total_stock']; ?></h5>
+                                        <p class="mb-0">Total en Stock</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-warning text-white">
+                                    <div class="card-body">
+                                        <h5><?php echo $stats['alertas_stock']; ?></h5>
+                                        <p class="mb-0">Alertas de Stock</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function mostrarStock(modeloId) {
+            const select = document.getElementById('modelo_id_egreso');
+            const stockInfo = document.getElementById('stock-info');
+            const cantidadInput = document.getElementById('cantidad_egreso');
+            
+            if (modeloId) {
+                const option = select.querySelector(`option[value="${modeloId}"]`);
+                const stock = option.getAttribute('data-stock');
+                stockInfo.textContent = `Stock disponible: ${stock}`;
+                cantidadInput.max = stock;
+            } else {
+                stockInfo.textContent = '';
+                cantidadInput.removeAttribute('max');
+            }
+        }
+        
+        function confirmarEliminacion(id, modelo) {
+            if (confirm(`¿Estás seguro de que deseas eliminar el toner "${modelo}"?\n\nEsta acción no se puede deshacer. El toner solo se puede eliminar si no tiene movimientos registrados.`)) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.style.display = 'none';
+                
+                const actionInput = document.createElement('input');
+                actionInput.type = 'hidden';
+                actionInput.name = 'action';
+                actionInput.value = 'eliminar_toner';
+                
+                const idInput = document.createElement('input');
+                idInput.type = 'hidden';
+                idInput.name = 'toner_id';
+                idInput.value = id;
+                
+                form.appendChild(actionInput);
+                form.appendChild(idInput);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+        
+        // Activar la pestaña correspondiente si hay un parámetro de edición en la URL
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('editar')) {
+                const edicionTab = new bootstrap.Tab(document.getElementById('edicion-tab'));
+                edicionTab.show();
+            }
+        });
+    </script>
+</body>
+</html>
