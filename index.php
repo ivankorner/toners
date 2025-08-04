@@ -78,6 +78,11 @@
                     <i class="fas fa-boxes me-1"></i>Stock
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="usuarios-tab" data-bs-toggle="tab" data-bs-target="#usuarios" type="button" role="tab">
+                    <i class="fas fa-users me-1"></i>Usuarios
+                </button>
+            </li>
         </ul>
 
         <div class="tab-content" id="myTabContent">
@@ -254,6 +259,77 @@
                                 }
                             } catch(PDOException $e) {
                                 $pdo->rollback();
+                                echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
+                            }
+                        }
+                        
+                        // Procesar crear usuario
+                        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'crear_usuario') {
+                            try {
+                                // Verificar que el nombre de usuario no exista
+                                $stmt = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE nombre_usuario = ?");
+                                $stmt->execute([$_POST['nombre_usuario']]);
+                                $usuario_existe = $stmt->fetchColumn();
+                                
+                                if ($usuario_existe == 0) {
+                                    // Encriptar la contraseña
+                                    $contrasena_hash = password_hash($_POST['contrasena'], PASSWORD_DEFAULT);
+                                    
+                                    // Insertar nuevo usuario
+                                    $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, contrasena) VALUES (?, ?)");
+                                    $stmt->execute([$_POST['nombre_usuario'], $contrasena_hash]);
+                                    
+                                    echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Usuario creado exitosamente</div>';
+                                } else {
+                                    echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: El nombre de usuario ya existe</div>';
+                                }
+                            } catch(PDOException $e) {
+                                echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
+                            }
+                        }
+                        
+                        // Procesar editar usuario
+                        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'editar_usuario') {
+                            try {
+                                // Verificar que el nombre de usuario no exista para otro usuario
+                                $stmt = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE nombre_usuario = ? AND id != ?");
+                                $stmt->execute([$_POST['nombre_usuario'], $_POST['usuario_id']]);
+                                $usuario_existe = $stmt->fetchColumn();
+                                
+                                if ($usuario_existe == 0) {
+                                    if (!empty($_POST['contrasena'])) {
+                                        // Si se proporciona nueva contraseña, actualizarla
+                                        $contrasena_hash = password_hash($_POST['contrasena'], PASSWORD_DEFAULT);
+                                        $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, contrasena = ? WHERE id = ?");
+                                        $stmt->execute([$_POST['nombre_usuario'], $contrasena_hash, $_POST['usuario_id']]);
+                                    } else {
+                                        // Solo actualizar el nombre de usuario
+                                        $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ? WHERE id = ?");
+                                        $stmt->execute([$_POST['nombre_usuario'], $_POST['usuario_id']]);
+                                    }
+                                    
+                                    echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Usuario actualizado exitosamente</div>';
+                                } else {
+                                    echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: El nombre de usuario ya existe</div>';
+                                }
+                            } catch(PDOException $e) {
+                                echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
+                            }
+                        }
+                        
+                        // Procesar eliminar usuario
+                        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'eliminar_usuario') {
+                            try {
+                                // No permitir eliminar el usuario admin (id = 1)
+                                if ($_POST['usuario_id'] != 1) {
+                                    $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = ?");
+                                    $stmt->execute([$_POST['usuario_id']]);
+                                    
+                                    echo '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Usuario eliminado exitosamente</div>';
+                                } else {
+                                    echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: No se puede eliminar el usuario administrador</div>';
+                                }
+                            } catch(PDOException $e) {
                                 echo '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' . $e->getMessage() . '</div>';
                             }
                         }
@@ -1043,6 +1119,130 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- Pestaña Usuarios -->
+            <div class="tab-pane fade" id="usuarios" role="tabpanel" aria-labelledby="usuarios-tab">
+                <div class="row">
+                    <!-- Crear Usuario -->
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-primary text-white">
+                                <i class="fas fa-user-plus me-2"></i>Crear Usuario
+                            </div>
+                            <div class="card-body">
+                                <form method="POST">
+                                    <input type="hidden" name="action" value="crear_usuario">
+                                    <div class="mb-3">
+                                        <label for="nombre_usuario_crear" class="form-label">Nombre de Usuario</label>
+                                        <input type="text" class="form-control" id="nombre_usuario_crear" name="nombre_usuario" required maxlength="50">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="contrasena_crear" class="form-label">Contraseña</label>
+                                        <input type="password" class="form-control" id="contrasena_crear" name="contrasena" required minlength="6">
+                                        <div class="form-text">La contraseña debe tener al menos 6 caracteres</div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-save me-2"></i>Crear Usuario
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Lista de Usuarios -->
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <i class="fas fa-users me-2"></i>Lista de Usuarios
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-striped">
+                                        <thead>
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>Usuario</th>
+                                                <th>Creado</th>
+                                                <th>Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php
+                                            try {
+                                                $stmt = $pdo->query("SELECT * FROM usuarios ORDER BY fecha_creacion DESC");
+                                                while($usuario = $stmt->fetch()) {
+                                                    echo '<tr>';
+                                                    echo '<td>' . $usuario['id'] . '</td>';
+                                                    echo '<td>' . htmlspecialchars($usuario['nombre_usuario']) . '</td>';
+                                                    echo '<td>' . date('d/m/Y', strtotime($usuario['fecha_creacion'])) . '</td>';
+                                                    echo '<td>';
+                                                    
+                                                    // Botón editar
+                                                    echo '<button type="button" class="btn btn-sm btn-warning me-1" onclick="editarUsuario(' . 
+                                                         $usuario['id'] . ', \'' . htmlspecialchars($usuario['nombre_usuario']) . '\')" title="Editar">';
+                                                    echo '<i class="fas fa-edit"></i>';
+                                                    echo '</button>';
+                                                    
+                                                    // Botón eliminar (solo si no es el admin)
+                                                    if ($usuario['id'] != 1) {
+                                                        echo '<button type="button" class="btn btn-sm btn-danger" onclick="confirmarEliminacionUsuario(' . 
+                                                             $usuario['id'] . ', \'' . htmlspecialchars($usuario['nombre_usuario']) . '\')" title="Eliminar">';
+                                                        echo '<i class="fas fa-trash"></i>';
+                                                        echo '</button>';
+                                                    } else {
+                                                        echo '<span class="badge bg-secondary">Admin</span>';
+                                                    }
+                                                    
+                                                    echo '</td>';
+                                                    echo '</tr>';
+                                                }
+                                            } catch(PDOException $e) {
+                                                echo '<tr><td colspan="4" class="text-danger">Error al cargar usuarios: ' . $e->getMessage() . '</td></tr>';
+                                            }
+                                            ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Modal para Editar Usuario -->
+                <div class="modal fade" id="modalEditarUsuario" tabindex="-1" aria-labelledby="modalEditarUsuarioLabel" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="modalEditarUsuarioLabel">
+                                    <i class="fas fa-user-edit me-2"></i>Editar Usuario
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                            </div>
+                            <form method="POST" id="formEditarUsuario">
+                                <div class="modal-body">
+                                    <input type="hidden" name="action" value="editar_usuario">
+                                    <input type="hidden" name="usuario_id" id="usuario_id_editar">
+                                    <div class="mb-3">
+                                        <label for="nombre_usuario_editar" class="form-label">Nombre de Usuario</label>
+                                        <input type="text" class="form-control" id="nombre_usuario_editar" name="nombre_usuario" required maxlength="50">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="contrasena_editar" class="form-label">Nueva Contraseña</label>
+                                        <input type="password" class="form-control" id="contrasena_editar" name="contrasena" minlength="6">
+                                        <div class="form-text">Dejar en blanco para mantener la contraseña actual</div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="submit" class="btn btn-warning">
+                                        <i class="fas fa-save me-2"></i>Actualizar Usuario
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1094,6 +1294,38 @@
                 const idInput = document.createElement('input');
                 idInput.type = 'hidden';
                 idInput.name = 'toner_id';
+                idInput.value = id;
+                
+                form.appendChild(actionInput);
+                form.appendChild(idInput);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+        
+        function editarUsuario(id, nombreUsuario) {
+            document.getElementById('usuario_id_editar').value = id;
+            document.getElementById('nombre_usuario_editar').value = nombreUsuario;
+            document.getElementById('contrasena_editar').value = '';
+            
+            const modal = new bootstrap.Modal(document.getElementById('modalEditarUsuario'));
+            modal.show();
+        }
+        
+        function confirmarEliminacionUsuario(id, nombreUsuario) {
+            if (confirm(`¿Estás seguro de que deseas eliminar el usuario "${nombreUsuario}"?\n\nEsta acción no se puede deshacer.`)) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.style.display = 'none';
+                
+                const actionInput = document.createElement('input');
+                actionInput.type = 'hidden';
+                actionInput.name = 'action';
+                actionInput.value = 'eliminar_usuario';
+                
+                const idInput = document.createElement('input');
+                idInput.type = 'hidden';
+                idInput.name = 'usuario_id';
                 idInput.value = id;
                 
                 form.appendChild(actionInput);

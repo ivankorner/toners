@@ -76,3 +76,16 @@ INSERT INTO drums (toner_id, modelo, cantidad_actual, cantidad_minima) VALUES
 (1, 'DR-1663', 3, 1),
 (2, 'DR-2255', 2, 1),
 (3, 'DR-3479', 4, 1);
+
+-- Tabla para los usuarios del sistema
+CREATE TABLE usuarios (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre_usuario VARCHAR(50) NOT NULL UNIQUE,
+    contrasena VARCHAR(255) NOT NULL,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ultimo_acceso TIMESTAMP NULL
+);
+
+-- Insertar usuario administrador por defecto
+INSERT INTO usuarios (nombre_usuario, contrasena) VALUES
+('admin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'); -- password
