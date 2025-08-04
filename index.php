@@ -990,7 +990,19 @@
             <div class="tab-pane fade" id="stock" role="tabpanel">
                 <div class="card mt-3">
                     <div class="card-header">
-                        <h5 class="mb-0"><i class="fas fa-boxes me-2"></i>Stock Actual de Toners</h5>
+                        <div class="row align-items-center">
+                            <div class="col">
+                                <h5 class="mb-0"><i class="fas fa-boxes me-2"></i>Stock Actual de Toners</h5>
+                            </div>
+                            <div class="col-auto">
+                                <a href="generar_pdf_inventario.php" target="_blank" class="btn btn-success btn-sm me-2">
+                                    <i class="fas fa-file-pdf me-2"></i>Ver Reporte Completo
+                                </a>
+                                <a href="generar_pdf_inventario.php?pdf=1" target="_blank" class="btn btn-danger btn-sm">
+                                    <i class="fas fa-download me-2"></i>Descargar PDF
+                                </a>
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body">
                         <div class="row">
@@ -1069,6 +1081,7 @@
                         
                         <!-- Resumen del stock -->
                         <hr>
+                    
                         <div class="row text-center">
                             <?php
                             $stats = $pdo->query("SELECT 
