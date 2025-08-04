@@ -1,3 +1,7 @@
+<?php
+require_once 'auth_check.php';
+require_once 'config/database.php';
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -28,27 +32,108 @@
         .btn-group-sm .btn {
             font-size: 0.875rem;
         }
+        .user-info {
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 25px;
+            padding: 8px 20px;
+            margin: 0 15px;
+            display: flex;
+            align-items: center;
+        }
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 10px;
+            font-size: 14px;
+        }
+        .session-info {
+            font-size: 0.8rem;
+            opacity: 0.8;
+        }
+        .logout-btn {
+            transition: all 0.3s ease;
+        }
+        .logout-btn:hover {
+            background-color: rgba(220, 53, 69, 0.1) !important;
+            border-color: #dc3545 !important;
+            color: #dc3545 !important;
+        }
     </style>
 </head>
 <body>
-    <?php require_once 'config/database.php'; ?>
-    
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="#">
                 <i class="fas fa-print me-2"></i>
                 Sistema de Inventario de Toners
             </a>
-            <div class="navbar-nav ms-auto">
-                <span class="navbar-text">
+            <div class="navbar-nav ms-auto d-flex align-items-center">
+                <div class="user-info">
+                    <div class="user-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div>
+                        <div class="fw-bold"><?php echo htmlspecialchars($_SESSION['nombre_usuario']); ?></div>
+                        <div class="session-info">
+                            <i class="fas fa-clock me-1"></i>
+                            Conectado desde: <?php echo date('H:i', $_SESSION['login_time']); ?>
+                        </div>
+                    </div>
+                </div>
+                <span class="navbar-text me-3">
                     <i class="fas fa-calendar-alt me-1"></i>
                     <?php echo date('d/m/Y'); ?>
                 </span>
+                <div class="dropdown">
+                    <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <i class="fas fa-cog me-1"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li>
+                            <h6 class="dropdown-header">
+                                <i class="fas fa-user-circle me-2"></i>
+                                <?php echo htmlspecialchars($_SESSION['nombre_usuario']); ?>
+                            </h6>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <span class="dropdown-item-text">
+                                <small class="text-muted">
+                                    <i class="fas fa-sign-in-alt me-1"></i>
+                                    Último acceso: <?php echo date('d/m/Y H:i', $_SESSION['ultimo_acceso']); ?>
+                                </small>
+                            </span>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <a class="dropdown-item logout-btn" href="logout.php" onclick="return confirmarLogout()">
+                                <i class="fas fa-sign-out-alt me-2 text-danger"></i>
+                                Cerrar Sesión
+                            </a>
+                        </li>
+                    </ul>
+                </div>
             </div>
         </div>
     </nav>
 
     <div class="container mt-4">
+        <!-- Mensaje de bienvenida (solo se muestra una vez) -->
+        <?php if (!isset($_SESSION['bienvenida_mostrada'])): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="fas fa-check-circle me-2"></i>
+                <strong>¡Bienvenido <?php echo htmlspecialchars($_SESSION['nombre_usuario']); ?>!</strong> 
+                Has iniciado sesión exitosamente. Tiempo de conexión: <?php echo date('H:i:s'); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            <?php $_SESSION['bienvenida_mostrada'] = true; ?>
+        <?php endif; ?>
+
         <!-- Tabs de navegación -->
         <ul class="nav nav-tabs" id="myTab" role="tablist">
             <li class="nav-item" role="presentation">
@@ -1294,7 +1379,7 @@
         }
         
         function confirmarEliminacion(id, modelo) {
-            if (confirm(`¿Estás seguro de que deseas eliminar el toner "${modelo}"?\n\nEsta acción no se puede deshacer. El toner solo se puede eliminar si no tiene movimientos registrados.`)) {
+            if (confirm(`¿Estás seguro de que deseas eliminar el toner "${modelo}"?\n\nEsta acción no se puede deshacer. El toner solo se puede eliminar si no tiene movimientos registrados`)) {
                 const form = document.createElement('form');
                 form.method = 'POST';
                 form.style.display = 'none';
@@ -1344,7 +1429,7 @@
                 form.appendChild(actionInput);
                 form.appendChild(idInput);
                 document.body.appendChild(form);
-                form.submit();
+                                              form.submit();
             }
         }
         
@@ -1356,6 +1441,11 @@
                 edicionTab.show();
             }
         });
+        
+        // Función para confirmar cierre de sesión
+        function confirmarLogout() {
+            return confirm('¿Está seguro de que desea cerrar la sesión?');
+        }
     </script>
 </body>
 </html>

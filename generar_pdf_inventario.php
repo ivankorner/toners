@@ -1,4 +1,5 @@
 <?php
+require_once 'auth_check.php';
 require_once 'config/database.php';
 
 // Verificar si se debe generar PDF o mostrar HTML
